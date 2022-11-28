@@ -3,6 +3,8 @@ pragma solidity 0.8.4; //Do not change the solidity version as it negativly impa
 
 import "hardhat/console.sol";
 import "./ExampleExternalContract.sol";
+error Staker__NotOpenForWithdraw();
+error Staker__TransferFailed();
 
 contract Staker {
     ExampleExternalContract public exampleExternalContract;
@@ -13,26 +15,52 @@ contract Staker {
         );
     }
 
-    event Staked(address indexed sender, uint256 amount);
+    event Stake(address indexed sender, uint256 amount);
 
     // change below variables to private and add the getters
     mapping(address => uint256) public s_balances;
     uint256 public constant threshold = 1 ether;
+    uint256 public deadline = block.timestamp + 30 seconds;
+    bool public openForWithdraw = false;
 
     function stake() public payable {
         s_balances[msg.sender] += msg.value;
-        emit Staked(msg.sender, msg.value);
+        emit Stake(msg.sender, msg.value);
     }
 
-    // Collect funds in a payable `stake()` function and track individual `balances` with a mapping:
-    // ( Make sure to add a `Stake(address,uint256)` event and emit it for the frontend <List/> display )
+    function execute() public {
+        if (address(this).balance >= threshold && block.timestamp > deadline) {
+            exampleExternalContract.complete{value: address(this).balance}();
+        } else {
+            openForWithdraw = true;
+        }
+    }
 
-    // After some `deadline` allow anyone to call an `execute()` function
-    // If the deadline has passed and the threshold is met, it should call `exampleExternalContract.complete{value: address(this).balance}()`
+    function withdraw() public {
+        if (!openForWithdraw) {
+            revert Staker__NotOpenForWithdraw();
+        }
 
-    // If the `threshold` was not met, allow everyone to call a `withdraw()` function to withdraw their balance
+        uint256 _amount = s_balances[msg.sender];
+        s_balances[msg.sender] = 0;
+        (bool success, ) = payable(msg.sender).call{value: _amount}("");
+        if (!success) {
+            revert Staker__TransferFailed();
+        }
+    }
 
-    // Add a `timeLeft()` view function that returns the time left before the deadline for the frontend
+    function timeLeft() public view returns (uint256) {
+        uint256 _timeLeft = 0;
+        int256 _time = int256(deadline) - int256(block.timestamp);
 
-    // Add the `receive()` special function that receives eth and calls stake()
+        if (_time >= 0) {
+            _timeLeft = uint256(_time);
+        }
+
+        return (_timeLeft);
+    }
+
+    receive() external payable {
+        stake();
+    }
 }
