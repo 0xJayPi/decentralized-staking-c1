@@ -18,20 +18,30 @@ contract Staker {
     event Stake(address indexed sender, uint256 amount);
 
     // change below variables to private and add the getters
-    mapping(address => uint256) public s_balances;
+    mapping(address => uint256) public balances;
+    address[] private participants;
     uint256 public constant threshold = 1 ether;
-    uint256 public deadline = block.timestamp + 30 seconds;
+    uint256 public deadline = block.timestamp + 24 hours;
     bool public openForWithdraw = false;
 
     function stake() public payable {
-        s_balances[msg.sender] += msg.value;
+        balances[msg.sender] += msg.value;
+        participants.push(msg.sender);
         emit Stake(msg.sender, msg.value);
     }
 
     function execute() public {
-        if (address(this).balance >= threshold && block.timestamp > deadline) {
-            exampleExternalContract.complete{value: address(this).balance}();
-        } else {
+        if (block.timestamp > deadline) {
+            if (address(this).balance >= threshold) {
+                exampleExternalContract.complete{
+                    value: address(this).balance
+                }();
+                for (uint256 i = 0; i < participants.length; i++) {
+                    address _participant = participants[i];
+                    balances[_participant] = 0;
+                }
+                delete participants;
+            }
             openForWithdraw = true;
         }
     }
@@ -41,8 +51,9 @@ contract Staker {
             revert Staker__NotOpenForWithdraw();
         }
 
-        uint256 _amount = s_balances[msg.sender];
-        s_balances[msg.sender] = 0;
+        uint256 _amount = balances[msg.sender];
+        balances[msg.sender] = 0;
+
         (bool success, ) = payable(msg.sender).call{value: _amount}("");
         if (!success) {
             revert Staker__TransferFailed();
